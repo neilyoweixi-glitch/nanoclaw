@@ -208,24 +208,29 @@ function setupGroupEnvironment(
   const claudeDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude');
   fs.mkdirSync(claudeDir, { recursive: true });
 
-  // Create settings.json if not exists
+  // Create/update settings.json with GLM model configuration
   const settingsFile = path.join(claudeDir, 'settings.json');
-  if (!fs.existsSync(settingsFile)) {
-    fs.writeFileSync(
-      settingsFile,
-      JSON.stringify(
-        {
-          env: {
-            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
-            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-          },
-        },
-        null,
-        2,
-      ) + '\n',
-    );
-  }
+  const glmSettings = {
+    env: {
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+      // GLM model configuration (from ~/.claude/settings.json)
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-4.7',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5',
+      API_TIMEOUT_MS: '3000000',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    },
+    model: 'opus[1m]',
+    skipDangerousModePermissionPrompt: true,
+    skipAutoPermissionPrompt: true,
+    permissions: {
+      defaultMode: 'auto',
+    },
+  };
+  fs.writeFileSync(settingsFile, JSON.stringify(glmSettings, null, 2) + '\n');
 
   // Copy skills from container/skills/
   const skillsSrc = path.join(process.cwd(), 'container', 'skills');
@@ -259,6 +264,13 @@ function setupGroupEnvironment(
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
     // Allow dangerous permissions for full system access
     CLAUDE_CODE_DISABLE_SANDBOX: '1',
+    // GLM model configuration
+    ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-4.7',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5',
+    API_TIMEOUT_MS: '3000000',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     // Working directory context
     PWD: input.isMain ? process.cwd() : groupDir,
   };
