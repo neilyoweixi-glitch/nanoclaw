@@ -170,7 +170,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     ASSISTANT_NAME,
   );
 
-  logger.debug({ chatJid, missedCount: missedMessages.length, sinceTimestamp }, 'Retrieved missed messages');
+  logger.debug(
+    { chatJid, missedCount: missedMessages.length, sinceTimestamp },
+    'Retrieved missed messages',
+  );
 
   if (missedMessages.length === 0) {
     logger.debug({ chatJid }, 'No missed messages, returning');
@@ -201,7 +204,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     { group: group.name, messageCount: missedMessages.length, isMainGroup },
     'Processing messages',
   );
-  logger.debug({ group: group.name, prompt: prompt.slice(0, 200) }, 'Formatted prompt');
+  logger.debug(
+    { group: group.name, prompt: prompt.slice(0, 200) },
+    'Formatted prompt',
+  );
 
   // Track idle timer for closing stdin when agent is idle
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -333,7 +339,13 @@ async function runAgent(
             isMain,
             assistantName: ASSISTANT_NAME,
           },
-          (proc) => queue.registerProcess(chatJid, proc, `host-${group.folder}`, group.folder),
+          (proc) =>
+            queue.registerProcess(
+              chatJid,
+              proc,
+              `host-${group.folder}`,
+              group.folder,
+            ),
           wrappedOnOutput as (output: HostOutput) => Promise<void>,
         )
       : await runContainerAgent(

@@ -232,12 +232,18 @@ function buildContainerArgs(
   const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
   if (httpProxy) {
     // Replace 127.0.0.1 with host gateway for container access
-    const containerProxy = httpProxy.replace(/127\.0\.0\.1/g, CONTAINER_HOST_GATEWAY);
+    const containerProxy = httpProxy.replace(
+      /127\.0\.0\.1/g,
+      CONTAINER_HOST_GATEWAY,
+    );
     args.push('-e', `HTTP_PROXY=${containerProxy}`);
     args.push('-e', `http_proxy=${containerProxy}`);
   }
   if (httpsProxy) {
-    const containerProxy = httpsProxy.replace(/127\.0\.0\.1/g, CONTAINER_HOST_GATEWAY);
+    const containerProxy = httpsProxy.replace(
+      /127\.0\.0\.1/g,
+      CONTAINER_HOST_GATEWAY,
+    );
     args.push('-e', `HTTPS_PROXY=${containerProxy}`);
     args.push('-e', `https_proxy=${containerProxy}`);
   }

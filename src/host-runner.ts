@@ -36,7 +36,13 @@ interface SlackMemory {
 const MEMORY_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function getSlackMemoryPath(groupFolder: string): string {
-  return path.join(DATA_DIR, 'sessions', groupFolder, '.claude', 'slack_memory.json');
+  return path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.claude',
+    'slack_memory.json',
+  );
 }
 
 function loadSlackMemory(groupFolder: string): SlackMemory {
@@ -53,7 +59,10 @@ function loadSlackMemory(groupFolder: string): SlackMemory {
       return data;
     }
   } catch (err) {
-    logger.warn({ groupFolder, err }, 'Failed to load Slack memory, creating new');
+    logger.warn(
+      { groupFolder, err },
+      'Failed to load Slack memory, creating new',
+    );
   }
   return createEmptyMemory();
 }
@@ -87,22 +96,35 @@ function buildMemoryContext(memory: SlackMemory): string {
   }
 
   if (memory.recentTopics.length > 0) {
-    parts.push(`## Recent Topics\n${memory.recentTopics.map(t => `- ${t}`).join('\n')}`);
+    parts.push(
+      `## Recent Topics\n${memory.recentTopics.map((t) => `- ${t}`).join('\n')}`,
+    );
   }
 
   if (Object.keys(memory.userPreferences).length > 0) {
-    parts.push(`## User Preferences\n${Object.entries(memory.userPreferences)
-      .map(([k, v]) => `- ${k}: ${v}`).join('\n')}`);
+    parts.push(
+      `## User Preferences\n${Object.entries(memory.userPreferences)
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join('\n')}`,
+    );
   }
 
   if (memory.pendingTasks.length > 0) {
-    parts.push(`## Pending Tasks\n${memory.pendingTasks.map(t => `- ${t}`).join('\n')}`);
+    parts.push(
+      `## Pending Tasks\n${memory.pendingTasks.map((t) => `- ${t}`).join('\n')}`,
+    );
   }
 
-  return parts.length > 0 ? `<slack_memory>\n${parts.join('\n\n')}\n</slack_memory>` : '';
+  return parts.length > 0
+    ? `<slack_memory>\n${parts.join('\n\n')}\n</slack_memory>`
+    : '';
 }
 
-function updateMemoryFromConversation(memory: SlackMemory, prompt: string, response: string): void {
+function updateMemoryFromConversation(
+  memory: SlackMemory,
+  prompt: string,
+  response: string,
+): void {
   // Extract topics from the conversation
   const topics: string[] = [];
 
@@ -113,7 +135,10 @@ function updateMemoryFromConversation(memory: SlackMemory, prompt: string, respo
   ];
 
   for (const pattern of topicPatterns) {
-    const matches = [...prompt.matchAll(pattern), ...response.matchAll(pattern)];
+    const matches = [
+      ...prompt.matchAll(pattern),
+      ...response.matchAll(pattern),
+    ];
     for (const match of matches) {
       if (match[1] && !topics.includes(match[1])) {
         topics.push(match[1].trim());
@@ -122,12 +147,16 @@ function updateMemoryFromConversation(memory: SlackMemory, prompt: string, respo
   }
 
   // Update recent topics (keep last 10)
-  memory.recentTopics = [...new Set([...topics, ...memory.recentTopics])].slice(0, 10);
+  memory.recentTopics = [...new Set([...topics, ...memory.recentTopics])].slice(
+    0,
+    10,
+  );
 
   // Update conversation summary (keep last 500 chars of context)
   const newSummary = `Last exchange: User asked about topics in the conversation. Assistant provided help.`;
   if (memory.conversationSummary.length > 2000) {
-    memory.conversationSummary = memory.conversationSummary.slice(-1500) + '\n' + newSummary;
+    memory.conversationSummary =
+      memory.conversationSummary.slice(-1500) + '\n' + newSummary;
   } else {
     memory.conversationSummary = memory.conversationSummary
       ? memory.conversationSummary + '\n' + newSummary
@@ -135,7 +164,8 @@ function updateMemoryFromConversation(memory: SlackMemory, prompt: string, respo
   }
 
   // Extract pending tasks
-  const taskPattern = /(?:todo|task|pending|need to|should|will)\s*:\s*([^.!?\n]{5,100})/gi;
+  const taskPattern =
+    /(?:todo|task|pending|need to|should|will)\s*:\s*([^.!?\n]{5,100})/gi;
   const taskMatches = response.matchAll(taskPattern);
   for (const match of taskMatches) {
     if (match[1] && !memory.pendingTasks.includes(match[1])) {
@@ -163,7 +193,10 @@ export interface HostOutput {
   error?: string;
 }
 
-function setupGroupEnvironment(group: RegisteredGroup, input: HostInput): {
+function setupGroupEnvironment(
+  group: RegisteredGroup,
+  input: HostInput,
+): {
   cwd: string;
   env: NodeJS.ProcessEnv;
   claudeDir: string;
@@ -178,13 +211,20 @@ function setupGroupEnvironment(group: RegisteredGroup, input: HostInput): {
   // Create settings.json if not exists
   const settingsFile = path.join(claudeDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
-    fs.writeFileSync(settingsFile, JSON.stringify({
-      env: {
-        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
-        CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-        CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-      },
-    }, null, 2) + '\n');
+    fs.writeFileSync(
+      settingsFile,
+      JSON.stringify(
+        {
+          env: {
+            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
   }
 
   // Copy skills from container/skills/
@@ -254,7 +294,12 @@ export async function runHostAgent(
   const memoryContext = buildMemoryContext(slackMemory);
 
   logger.info(
-    { group: group.name, isMain: input.isMain, cwd, hasMemory: !!memoryContext },
+    {
+      group: group.name,
+      isMain: input.isMain,
+      cwd,
+      hasMemory: !!memoryContext,
+    },
     'Starting host agent (no container)',
   );
 
@@ -271,14 +316,18 @@ export async function runHostAgent(
     // Spawn claude directly on host
     // Use --print for non-interactive mode
     // Use --dangerously-skip-permissions to bypass all approval prompts
-    const claude = spawn('claude', ['--print', '--dangerously-skip-permissions'], {
-      cwd,
-      env: {
-        ...env,
-        HOME: claudeDir, // Use group's .claude directory
+    const claude = spawn(
+      'claude',
+      ['--print', '--dangerously-skip-permissions'],
+      {
+        cwd,
+        env: {
+          ...env,
+          HOME: claudeDir, // Use group's .claude directory
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
       },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    );
 
     onProcess(claude);
 
@@ -329,7 +378,10 @@ export async function runHostAgent(
             resetTimeout();
             outputChain = outputChain.then(() => onOutput(parsed));
           } catch (err) {
-            logger.warn({ group: group.name, error: err }, 'Failed to parse output chunk');
+            logger.warn(
+              { group: group.name, error: err },
+              'Failed to parse output chunk',
+            );
           }
         }
       }
@@ -369,36 +421,52 @@ export async function runHostAgent(
       // Write log
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       const logFile = path.join(logsDir, `host-${ts}.log`);
-      fs.writeFileSync(logFile, [
-        `=== Host Run Log ===`,
-        `Timestamp: ${new Date().toISOString()}`,
-        `Group: ${group.name}`,
-        `IsMain: ${input.isMain}`,
-        `Duration: ${duration}ms`,
-        `Exit Code: ${code}`,
-        `CWD: ${cwd}`,
-        `Timed Out: ${timedOut}`,
-        ``,
-        `=== Stderr ===`,
-        stderr.slice(-2000),
-        ``,
-        `=== Stdout ===`,
-        stdout.slice(-2000),
-      ].join('\n'));
+      fs.writeFileSync(
+        logFile,
+        [
+          `=== Host Run Log ===`,
+          `Timestamp: ${new Date().toISOString()}`,
+          `Group: ${group.name}`,
+          `IsMain: ${input.isMain}`,
+          `Duration: ${duration}ms`,
+          `Exit Code: ${code}`,
+          `CWD: ${cwd}`,
+          `Timed Out: ${timedOut}`,
+          ``,
+          `=== Stderr ===`,
+          stderr.slice(-2000),
+          ``,
+          `=== Stdout ===`,
+          stdout.slice(-2000),
+        ].join('\n'),
+      );
 
       if (timedOut && hadStreamingOutput) {
-        logger.info({ group: group.name, duration }, 'Host agent timed out after output');
-        outputChain.then(() => resolve({ status: 'success', result: null, newSessionId }));
+        logger.info(
+          { group: group.name, duration },
+          'Host agent timed out after output',
+        );
+        outputChain.then(() =>
+          resolve({ status: 'success', result: null, newSessionId }),
+        );
         return;
       }
 
       if (timedOut) {
-        resolve({ status: 'error', result: null, error: `Timed out after ${configTimeout}ms` });
+        resolve({
+          status: 'error',
+          result: null,
+          error: `Timed out after ${configTimeout}ms`,
+        });
         return;
       }
 
       if (code !== 0) {
-        resolve({ status: 'error', result: null, error: `Exit code ${code}: ${stderr.slice(-200)}` });
+        resolve({
+          status: 'error',
+          result: null,
+          error: `Exit code ${code}: ${stderr.slice(-200)}`,
+        });
         return;
       }
 
@@ -407,13 +475,23 @@ export async function runHostAgent(
         // If no streaming markers were found, treat stdout as the result
         const trimmedOutput = stdout.trim();
         logger.debug(
-          { group: group.name, hadStreamingOutput, outputLength: trimmedOutput.length },
+          {
+            group: group.name,
+            hadStreamingOutput,
+            outputLength: trimmedOutput.length,
+          },
           'Host agent finished, checking output',
         );
         if (trimmedOutput && !hadStreamingOutput) {
           // No markers found - treat entire output as a single result
-          const output: HostOutput = { status: 'success', result: trimmedOutput };
-          logger.info({ group: group.name, output: trimmedOutput.slice(0, 100) }, 'Calling onOutput with result');
+          const output: HostOutput = {
+            status: 'success',
+            result: trimmedOutput,
+          };
+          logger.info(
+            { group: group.name, output: trimmedOutput.slice(0, 100) },
+            'Calling onOutput with result',
+          );
           outputChain = outputChain.then(() => onOutput(output));
           // Update and save memory after successful output
           updateMemoryFromConversation(slackMemory, fullPrompt, trimmedOutput);
@@ -431,14 +509,23 @@ export async function runHostAgent(
         const startIdx = stdout.indexOf(OUTPUT_START_MARKER);
         const endIdx = stdout.indexOf(OUTPUT_END_MARKER);
         if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-          const jsonStr = stdout.slice(startIdx + OUTPUT_START_MARKER.length, endIdx).trim();
+          const jsonStr = stdout
+            .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
+            .trim();
           const output: HostOutput = JSON.parse(jsonStr);
           // Update and save memory
           if (output.result) {
-            updateMemoryFromConversation(slackMemory, fullPrompt, output.result);
+            updateMemoryFromConversation(
+              slackMemory,
+              fullPrompt,
+              output.result,
+            );
             saveSlackMemory(group.folder, slackMemory);
           }
-          logger.info({ group: group.name, duration, status: output.status }, 'Host agent completed');
+          logger.info(
+            { group: group.name, duration, status: output.status },
+            'Host agent completed',
+          );
           resolve(output);
         } else {
           // No markers - treat entire output as result
@@ -457,7 +544,11 @@ export async function runHostAgent(
     claude.on('error', (err) => {
       clearTimeout(timeout);
       logger.error({ group: group.name, error: err }, 'Host agent spawn error');
-      resolve({ status: 'error', result: null, error: `Spawn error: ${err.message}` });
+      resolve({
+        status: 'error',
+        result: null,
+        error: `Spawn error: ${err.message}`,
+      });
     });
   });
 }
