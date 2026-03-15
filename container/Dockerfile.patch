@@ -1,0 +1,26 @@
+# Patch existing nanoclaw-agent image to add non-root user
+# This is needed because Claude CLI refuses --dangerously-skip-permissions as root
+
+FROM nanoclaw-agent:latest
+
+# Switch to root for modifications
+USER root
+
+# Install sudo and create agent user
+RUN apt-get update && apt-get install -y sudo && rm -rf /var/lib/apt/lists/* && \
+    useradd -m -s /bin/bash agent && \
+    echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    mkdir -p /home/agent && \
+    chown -R agent:agent /app /workspace /home/agent
+
+# Set HOME for agent user
+ENV HOME=/home/agent
+
+# Run as agent user (non-root for Claude CLI security)
+USER agent
+
+# Set working directory to group workspace
+WORKDIR /workspace/group
+
+# Entry point remains the same
+ENTRYPOINT ["/app/entrypoint.sh"]

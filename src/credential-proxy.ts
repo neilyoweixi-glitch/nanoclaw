@@ -79,11 +79,16 @@ export function startCredentialProxy(
           }
         }
 
+        // Combine base path from upstream URL with request path
+        const basePath = upstreamUrl.pathname.replace(/\/$/, '');
+        const requestPath = req.url || '/';
+        const fullPath = basePath + requestPath;
+
         const upstream = makeRequest(
           {
             hostname: upstreamUrl.hostname,
             port: upstreamUrl.port || (isHttps ? 443 : 80),
-            path: req.url,
+            path: fullPath,
             method: req.method,
             headers,
           } as RequestOptions,

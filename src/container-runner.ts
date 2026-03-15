@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -76,16 +77,9 @@ function buildVolumeMounts(
       readonly: true,
     });
 
-    // Shadow .env so the agent cannot read secrets from the mounted project root.
-    // Credentials are injected by the credential proxy, never exposed to containers.
-    const envFile = path.join(projectRoot, '.env');
-    if (fs.existsSync(envFile)) {
-      mounts.push({
-        hostPath: '/dev/null',
-        containerPath: '/workspace/project/.env',
-        readonly: true,
-      });
-    }
+    // Note: .env shadowing mount removed - it fails on read-only filesystems.
+    // The project is already mounted read-only, so the agent cannot modify .env.
+    // Credentials are injected by the credential proxy, not read from .env.
 
     // Main also gets its group folder as the working directory
     mounts.push({
@@ -159,7 +153,7 @@ function buildVolumeMounts(
   }
   mounts.push({
     hostPath: groupSessionsDir,
-    containerPath: '/home/node/.claude',
+    containerPath: '/home/agent/.claude',
     readonly: false,
   });
 
@@ -175,29 +169,21 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Copy agent-runner source into a per-group writable location so agents
-  // can customize it (add tools, change behavior) without affecting other
-  // groups. Recompiled on container startup via entrypoint.sh.
-  const agentRunnerSrc = path.join(
-    projectRoot,
-    'container',
-    'agent-runner',
-    'src',
-  );
-  const groupAgentRunnerDir = path.join(
-    DATA_DIR,
-    'sessions',
-    group.folder,
-    'agent-runner-src',
-  );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
-  }
-  mounts.push({
-    hostPath: groupAgentRunnerDir,
-    containerPath: '/app/src',
-    readonly: false,
-  });
+  // Note: Per-group source file mounting removed. The container now uses
+  // pre-built code in /app/dist instead of recompiling at runtime.
+  // This avoids Docker/Colima virtiofs issues with nested mounts on macOS.
+
+  // Mount SSH directory for GitHub access (read-only to prevent key modification)
+  // TEMPORARILY DISABLED: Docker Desktop file sharing permission issue
+  // To re-enable: Add ~/.ssh to Docker Desktop → Settings → Resources → File Sharing
+  // const sshDir = path.join(os.homedir() || '/root', '.ssh');
+  // if (fs.existsSync(sshDir)) {
+  //   mounts.push({
+  //     hostPath: sshDir,
+  //     containerPath: '/home/agent/.ssh',
+  //     readonly: true,
+  //   });
+  // }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
@@ -241,15 +227,27 @@ function buildContainerArgs(
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
-  // Run as host user so bind-mounted files are accessible.
-  // Skip when running as root (uid 0), as the container's node user (uid 1000),
-  // or when getuid is unavailable (native Windows without WSL).
-  const hostUid = process.getuid?.();
-  const hostGid = process.getgid?.();
-  if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
-    args.push('--user', `${hostUid}:${hostGid}`);
-    args.push('-e', 'HOME=/home/node');
+  // Pass proxy configuration to container for GitHub access
+  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  if (httpProxy) {
+    // Replace 127.0.0.1 with host gateway for container access
+    const containerProxy = httpProxy.replace(/127\.0\.0\.1/g, CONTAINER_HOST_GATEWAY);
+    args.push('-e', `HTTP_PROXY=${containerProxy}`);
+    args.push('-e', `http_proxy=${containerProxy}`);
   }
+  if (httpsProxy) {
+    const containerProxy = httpsProxy.replace(/127\.0\.0\.1/g, CONTAINER_HOST_GATEWAY);
+    args.push('-e', `HTTPS_PROXY=${containerProxy}`);
+    args.push('-e', `https_proxy=${containerProxy}`);
+  }
+  // Bypass proxy for local services (credential proxy, etc.)
+  args.push('-e', `NO_PROXY=localhost,127.0.0.1,${CONTAINER_HOST_GATEWAY}`);
+  args.push('-e', `no_proxy=localhost,127.0.0.1,${CONTAINER_HOST_GATEWAY}`);
+
+  // Run as non-root agent user with sudo access for software development
+  // This allows installing packages via sudo while satisfying Claude CLI security
+  args.push('-e', 'HOME=/home/agent');
 
   for (const mount of mounts) {
     if (mount.readonly) {

@@ -21,6 +21,10 @@ import {
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
+import { runHostAgent, HostOutput } from './host-runner.js';
+
+// Host mode runs Claude directly on the host without container isolation
+const HOST_MODE = process.env.NANOCLAW_HOST_MODE === '1';
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
@@ -144,8 +148,12 @@ export function _setRegisteredGroups(
  * Called by the GroupQueue when it's this group's turn.
  */
 async function processGroupMessages(chatJid: string): Promise<boolean> {
+  logger.debug({ chatJid }, 'processGroupMessages called');
   const group = registeredGroups[chatJid];
-  if (!group) return true;
+  if (!group) {
+    logger.debug({ chatJid }, 'No group found, returning');
+    return true;
+  }
 
   const channel = findChannel(channels, chatJid);
   if (!channel) {
@@ -162,7 +170,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     ASSISTANT_NAME,
   );
 
-  if (missedMessages.length === 0) return true;
+  logger.debug({ chatJid, missedCount: missedMessages.length, sinceTimestamp }, 'Retrieved missed messages');
+
+  if (missedMessages.length === 0) {
+    logger.debug({ chatJid }, 'No missed messages, returning');
+    return true;
+  }
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
@@ -185,9 +198,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   saveState();
 
   logger.info(
-    { group: group.name, messageCount: missedMessages.length },
+    { group: group.name, messageCount: missedMessages.length, isMainGroup },
     'Processing messages',
   );
+  logger.debug({ group: group.name, prompt: prompt.slice(0, 200) }, 'Formatted prompt');
 
   // Track idle timer for closing stdin when agent is idle
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -207,6 +221,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  logger.debug({ group: group.name, HOST_MODE }, 'About to call runAgent');
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.result) {
@@ -306,20 +321,35 @@ async function runAgent(
     : undefined;
 
   try {
-    const output = await runContainerAgent(
-      group,
-      {
-        prompt,
-        sessionId,
-        groupFolder: group.folder,
-        chatJid,
-        isMain,
-        assistantName: ASSISTANT_NAME,
-      },
-      (proc, containerName) =>
-        queue.registerProcess(chatJid, proc, containerName, group.folder),
-      wrappedOnOutput,
-    );
+    // Use host runner if NANOCLAW_HOST_MODE=1, otherwise use container
+    const output = HOST_MODE
+      ? await runHostAgent(
+          group,
+          {
+            prompt,
+            sessionId,
+            groupFolder: group.folder,
+            chatJid,
+            isMain,
+            assistantName: ASSISTANT_NAME,
+          },
+          (proc) => queue.registerProcess(chatJid, proc, `host-${group.folder}`, group.folder),
+          wrappedOnOutput as (output: HostOutput) => Promise<void>,
+        )
+      : await runContainerAgent(
+          group,
+          {
+            prompt,
+            sessionId,
+            groupFolder: group.folder,
+            chatJid,
+            isMain,
+            assistantName: ASSISTANT_NAME,
+          },
+          (proc, containerName) =>
+            queue.registerProcess(chatJid, proc, containerName, group.folder),
+          wrappedOnOutput,
+        );
 
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;
