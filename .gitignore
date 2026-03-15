@@ -35,4 +35,13 @@ groups/global/*
 # Skills system (local per-installation state)
 .nanoclaw/
 
+# Claude Code local settings
+.claude/settings.local.json
+
+# User memory directory
+memory/
+
+# Local database files
+*.db
+
 agents-sdk-docs
