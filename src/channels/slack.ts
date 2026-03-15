@@ -5,6 +5,7 @@ import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { updateChatName } from '../db.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
+import { transcribeAudio } from '../transcription.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -17,10 +18,39 @@ import {
 // Messages exceeding this are split into sequential chunks.
 const MAX_MESSAGE_LENGTH = 4000;
 
+// Audio MIME types that we transcribe
+const AUDIO_MIME_TYPES = [
+  'audio/mp4',
+  'audio/m4a',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/webm',
+  'audio/ogg',
+  'audio/aac',
+  'video/mp4', // Slack voice messages come as video/mp4
+];
+
 // The message subtypes we process. Bolt delivers all subtypes via app.event('message');
-// we filter to regular messages (GenericMessageEvent, subtype undefined) and bot messages
-// (BotMessageEvent, subtype 'bot_message') so we can track our own output.
+// we filter to regular messages (GenericMessageEvent, subtype undefined), bot messages
+// (BotMessageEvent, subtype 'bot_message'), and file_share for audio files.
 type HandledMessageEvent = GenericMessageEvent | BotMessageEvent;
+
+// File share event type (not in @slack/types)
+interface FileShareMessageEvent {
+  subtype: 'file_share';
+  channel: string;
+  channel_type?: string;
+  ts: string;
+  user?: string;
+  bot_id?: string;
+  text?: string;
+  files?: Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+    url_private_download?: string;
+  }>;
+}
 
 export interface SlackChannelOpts {
   onMessage: OnInboundMessage;
@@ -68,16 +98,36 @@ export class SlackChannel implements Channel {
   private setupEventHandlers(): void {
     // Use app.event('message') instead of app.message() to capture all
     // message subtypes including bot_message (needed to track our own output)
+    // and file_share (for audio/voice transcription)
     this.app.event('message', async ({ event }) => {
       // Bolt's event type is the full MessageEvent union (17+ subtypes).
-      // We filter on subtype first, then narrow to the two types we handle.
+      // We filter on subtype first, then narrow to the types we handle.
       const subtype = (event as { subtype?: string }).subtype;
-      if (subtype && subtype !== 'bot_message') return;
 
-      // After filtering, event is either GenericMessageEvent or BotMessageEvent
-      const msg = event as HandledMessageEvent;
+      // Skip unwanted subtypes but allow file_share for audio processing
+      if (subtype && subtype !== 'bot_message' && subtype !== 'file_share') {
+        return;
+      }
 
-      if (!msg.text) return;
+      const msg = event as HandledMessageEvent | FileShareMessageEvent;
+      const isFileShare = subtype === 'file_share';
+      const fileShareMsg = isFileShare
+        ? (msg as FileShareMessageEvent)
+        : undefined;
+
+      // For regular messages, require text
+      if (!isFileShare && !msg.text) return;
+
+      // For file_share, check if it's an audio file
+      if (isFileShare) {
+        const audioFile = fileShareMsg?.files?.find((f) =>
+          AUDIO_MIME_TYPES.includes(f.mimetype),
+        );
+        if (!audioFile) {
+          // Not an audio file, skip
+          return;
+        }
+      }
 
       // Threaded replies are flattened into the channel conversation.
       // The agent sees them alongside channel-level messages; responses
@@ -106,10 +156,34 @@ export class SlackChannel implements Channel {
           'unknown';
       }
 
+      // Build message content
+      let content = msg.text || '';
+
+      // Handle audio file transcription
+      if (isFileShare && fileShareMsg?.files) {
+        const audioFile = fileShareMsg.files.find((f) =>
+          AUDIO_MIME_TYPES.includes(f.mimetype),
+        );
+        if (audioFile) {
+          const transcription = await this.transcribeAudioFile(audioFile);
+          if (transcription) {
+            content = content
+              ? `${content}\n[Voice: ${transcription}]`
+              : `[Voice: ${transcription}]`;
+          } else {
+            content = content
+              ? `${content}\n[Voice Message - transcription unavailable]`
+              : '[Voice Message - transcription unavailable]';
+          }
+        }
+      }
+
+      // Skip if no content at all
+      if (!content) return;
+
       // Translate Slack <@UBOTID> mentions into TRIGGER_PATTERN format.
       // Slack encodes @mentions as <@U12345>, which won't match TRIGGER_PATTERN
       // (e.g., ^@<ASSISTANT_NAME>\b), so we prepend the trigger when the bot is @mentioned.
-      let content = msg.text;
       if (this.botUserId && !isBotMessage) {
         const mentionPattern = `<@${this.botUserId}>`;
         if (
@@ -131,6 +205,68 @@ export class SlackChannel implements Channel {
         is_bot_message: isBotMessage,
       });
     });
+  }
+
+  /**
+   * Download and transcribe an audio file from Slack.
+   */
+  private async transcribeAudioFile(file: {
+    id: string;
+    name: string;
+    mimetype: string;
+    url_private_download?: string;
+  }): Promise<string | null> {
+    if (!file.url_private_download) {
+      logger.warn(
+        { fileId: file.id, name: file.name },
+        'Audio file has no download URL',
+      );
+      return null;
+    }
+
+    try {
+      logger.info(
+        { fileId: file.id, name: file.name, mimetype: file.mimetype },
+        'Downloading audio file for transcription',
+      );
+
+      // Download the file using Slack API with bot token
+      const env = readEnvFile(['SLACK_BOT_TOKEN']);
+      const response = await fetch(file.url_private_download, {
+        headers: {
+          Authorization: `Bearer ${env.SLACK_BOT_TOKEN}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to download: ${response.status}`);
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      // Transcribe using local whisper
+      const result = await transcribeAudio(buffer, file.mimetype);
+
+      if (result.success && result.text) {
+        logger.info(
+          { fileId: file.id, length: result.text.length },
+          'Transcribed Slack voice message',
+        );
+        return result.text;
+      }
+
+      logger.warn(
+        { fileId: file.id, error: result.error },
+        'Transcription failed',
+      );
+      return null;
+    } catch (err) {
+      logger.error(
+        { err, fileId: file.id, name: file.name },
+        'Failed to transcribe audio file',
+      );
+      return null;
+    }
   }
 
   async connect(): Promise<void> {
