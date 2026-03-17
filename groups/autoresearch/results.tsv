@@ -1,0 +1,13 @@
+commit	val_bpb	memory_gb	status	description
+experiment_1	12.003584	188.1MB	completed	baseline: 6L/8H/512E, LR=3e-4
+experiment_2	12.015607	1048.5MB	completed	10L/16H/512E, LR=5e-4, WD=0.05, too slow
+experiment_3	12.001539	154.0MB	completed	4L/4H/128E, LR=1e-3, BS=32, best intermediate 12.000883
+experiment_1a	12.003011	188	baseline (7.3M params, 6 layers, LR=3e-4)
+experiment_1b	~12.014	N/A	wider model (27M params, 6 layers) - timeout
+experiment_1c	12.004211	188	high LR (1e-3) - early divergence
+experiment_1d	N/A	N/A	deeper model (44M params, 10 layers) - killed
+experiment_3	12.002294	154	shallow fast model (1.6M params, 4 layers, LR=1e-3)
+experiment_4	12.001362	264.4MB	completed	3L/4H/64E, LR=5e-4 constant, BS=64, best 12.001120
+experiment_4	12.001298	264.6	tiny model (0.5M params, 3 layers, constant LR=5e-4) - NEW BEST
+experiment_5	12.000923	262.3MB	completed	2L/4H/48E, LR=8e-4 constant, BS=64, best 12.000779
+experiment_6	12.000976	261.2MB	completed	1L/4H/32E, LR=1e-3 constant, BS=64, best 12.000785
